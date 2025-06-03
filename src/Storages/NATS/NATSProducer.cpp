@@ -126,4 +126,115 @@ void NATSProducer::startProducingTaskLoop()
     LOG_DEBUG(log, "Producer on subject {} completed", subject);
 }
 
+NATSJetStreamProducer::NATSJetStreamProducer(
+    NATSConnectionPtr connection_,
+    const String & subject_,
+    std::atomic<bool> & shutdown_called_,
+    LoggerPtr log_)
+    : AsynchronousMessageProducer(log_)
+    , connection(std::move(connection_))
+    , subject(subject_)
+    , shutdown_called(shutdown_called_)
+    , payloads(BATCH)
+{
+}
+
+void NATSJetStreamProducer::finishImpl()
+{
+    try
+    {
+        if (connection)
+        {
+            if (connection->isConnected())
+                natsConnection_Flush(connection->getConnection());
+
+            connection->disconnect();
+        }
+    }
+    catch (...)
+    {
+        tryLogCurrentException(log);
+    }
+}
+
+void NATSJetStreamProducer::cancel() noexcept
+{
+    try
+    {
+        finish();
+    }
+    catch (...)
+    {
+        tryLogCurrentException(__PRETTY_FUNCTION__);
+    }
+}
+
+void NATSJetStreamProducer::produce(const String & message, size_t, const Columns &, size_t)
+{
+    if (!payloads.push(message))
+        throw Exception(ErrorCodes::INVALID_STATE, "Could not push to payloads queue");
+}
+
+void NATSJetStreamProducer::publish()
+{
+    String payload;
+
+    natsStatus status;
+    while (!payloads.empty())
+    {
+        if (!connection->isConnected() || natsConnection_Buffered(connection->getConnection()) > MAX_BUFFERED)
+            break;
+        bool pop_result = payloads.pop(payload);
+
+        if (!pop_result)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Could not pop payload");
+
+        status = natsConnection_Publish(connection->getConnection(), subject.c_str(), payload.c_str(), static_cast<int>(payload.size()));
+
+        if (status != NATS_OK)
+        {
+            LOG_DEBUG(log, "Something went wrong during publishing to NATS subject. Nats status text: {}. Last error message: {}",
+                      natsStatus_GetText(status), nats_GetLastError(nullptr));
+            if (!payloads.pushFront(payload))
+                throw Exception(ErrorCodes::INVALID_STATE, "Could not push to payloads queue");
+            break;
+        }
+    }
+}
+
+void NATSJetStreamProducer::stopProducingTask()
+{
+    payloads.finish();
+}
+
+void NATSJetStreamProducer::startProducingTaskLoop()
+{
+    SCOPE_EXIT(nats_ReleaseThreadMemory());
+
+    try
+    {
+        while (!payloads.isFinishedAndEmpty())
+        {
+            if (!connection->isConnected())
+                std::this_thread::sleep_for(std::chrono::milliseconds(connection->getReconnectWait()));
+            else
+                publish();
+        }
+
+        while (!connection->isConnected() && !shutdown_called)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(connection->getReconnectWait()));
+        }
+
+        if (connection->isConnected() && natsConnection_Buffered(connection->getConnection()) > 0)
+            natsConnection_Flush(connection->getConnection());
+    }
+    catch (...)
+    {
+        tryLogCurrentException(log);
+    }
+
+    LOG_DEBUG(log, "Producer on subject {} completed", subject);
+}
+
 }

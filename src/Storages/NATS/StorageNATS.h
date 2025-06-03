@@ -16,8 +16,8 @@
 namespace DB
 {
 
-class NATSConsumer;
-using NATSConsumerPtr = std::shared_ptr<NATSConsumer>;
+class INATSConsumer;
+using NATSConsumerPtr = std::shared_ptr<INATSConsumer>;
 struct NATSSettings;
 
 class StorageNATS final : public IStorage, WithContext

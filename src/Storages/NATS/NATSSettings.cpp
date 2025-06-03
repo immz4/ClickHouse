@@ -24,6 +24,9 @@ namespace ErrorCodes
     DECLARE(UInt64, nats_num_consumers, 1, "The number of consumer channels per table.", 0) \
     DECLARE(String, nats_queue_group, "", "Name for queue group of NATS subscribers.", 0) \
     DECLARE(Bool, nats_secure, false, "Use SSL connection", 0) \
+    DECLARE(Bool, nats_js, false, "Use NATS JetStream", 0) \
+    DECLARE(String, nats_js_stream, "", "A stream for NATS JetStream", 0) \
+    DECLARE(String, nats_js_consumer, "", "Name of a durable consumer for NATS JetStream", 0) \
     DECLARE(UInt64, nats_reconnect_wait, 2000, "Amount of time in milliseconds to sleep between each reconnect attempt.", 0) \
     DECLARE(String, nats_server_list, "", "Server list for connection", 0) \
     DECLARE(UInt64, nats_skip_broken_messages, 0, "Skip at least this number of broken messages from NATS per block", 0) \
